@@ -1,0 +1,183 @@
+import { NextResponse } from "next/server"
+
+/*
+  Production-ready multi-LLM API handler for FestiRo
+  
+  Supported models:
+  - Google Gemini 2.0 Flash (primary, cloud) ✅ WORKING
+  - Ollama Local (secondary, offline) ✅ WORKING
+  
+  Note: Hugging Face removed due to API instability
+*/
+
+// Configuration
+const REQUEST_TIMEOUT = 30000 // 30 seconds
+const MAX_TOKENS = 500
+
+// Festival assistant system prompt
+const FESTIRO_PROMPT = `You are FestiRo, a cultural calendar assistant specializing in Indian festivals, auspicious dates (muhurat), and cultural celebrations. Provide helpful, accurate, and culturally sensitive information about festivals, traditions, and celebrations.`
+
+// Timeout utility
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit,
+  timeout: number
+): Promise<Response> => {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error) {
+    clearTimeout(timeoutId)
+    throw error
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { message, context } = await request.json()
+
+    // Input validation
+    if (!message || typeof message !== "string" || message.trim().length === 0) {
+      return NextResponse.json(
+        { error: "Invalid message. Please provide a non-empty string." },
+        { status: 400 }
+      )
+    }
+
+    const model = context?.model?.toLowerCase() || "gemini"
+    let reply = ""
+    let error = null
+
+    // 1️⃣ Google Gemini (Primary - Most Reliable)
+    if (model === "gemini") {
+      const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+
+      if (!GEMINI_API_KEY) {
+        return NextResponse.json(
+          { error: "Gemini API key not configured" },
+          { status: 500 }
+        )
+      }
+
+      const geminiModel = "gemini-2.0-flash-exp"
+
+      try {
+        const geminiResponse = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `${FESTIRO_PROMPT}\n\nUser question: ${message}`,
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: MAX_TOKENS,
+                topP: 0.95,
+              },
+            }),
+          },
+          REQUEST_TIMEOUT
+        )
+
+        if (!geminiResponse.ok) {
+          const errorData = await geminiResponse.json().catch(() => ({}))
+          console.error("Gemini Error:", errorData)
+          throw new Error(
+            errorData.error?.message || `HTTP ${geminiResponse.status}`
+          )
+        }
+
+        const geminiData = await geminiResponse.json()
+        reply =
+          geminiData.candidates?.[0]?.content?.parts?.[0]?.text ||
+          "No response from Gemini."
+      } catch (err: any) {
+        console.error("Gemini Error:", err)
+        error = `Gemini error: ${err.message}`
+        reply = "Failed to get response from Gemini model."
+      }
+    }
+
+    // 2️⃣ Ollama Local Model (Secondary - Offline)
+    else if (model === "ollama") {
+      try {
+        const ollamaResponse = await fetchWithTimeout(
+          "http://localhost:11434/api/generate",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "llama3.2", // or llama3.1, qwen2.5, etc.
+              prompt: `${FESTIRO_PROMPT}\n\nUser question: ${message}`,
+              stream: false,
+              options: {
+                temperature: 0.7,
+                num_predict: MAX_TOKENS,
+              },
+            }),
+          },
+          REQUEST_TIMEOUT
+        )
+
+        if (!ollamaResponse.ok) {
+          throw new Error(`Ollama HTTP ${ollamaResponse.status}`)
+        }
+
+        const data = await ollamaResponse.json()
+        reply = data.response?.trim() || "No response from Ollama."
+      } catch (err: any) {
+        console.error("Ollama Error:", err)
+        error = `Ollama error: ${err.message}. Make sure Ollama is running locally.`
+        reply =
+          "Failed to connect to local Ollama server. Make sure Ollama is running on localhost:11434."
+      }
+    }
+
+    // Invalid model
+    else {
+      return NextResponse.json(
+        {
+          error: `Invalid model: ${model}. Use 'gemini' or 'ollama'.`,
+        },
+        { status: 400 }
+      )
+    }
+
+    return NextResponse.json({
+      intent: "chat",
+      confidence: error ? 0 : 1,
+      reply,
+      model,
+      error: error || undefined,
+      rag_hits: [],
+      timestamp: new Date().toISOString(),
+    })
+  } catch (err: any) {
+    console.error("API Route Error:", err)
+    return NextResponse.json(
+      {
+        error: "Internal server error",
+        details: err.message,
+        intent: "chat",
+        confidence: 0,
+        reply: "An unexpected error occurred. Please try again.",
+      },
+      { status: 500 }
+    )
+  }
+}

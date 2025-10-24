@@ -1,0 +1,376 @@
+import { NextResponse } from "next/server"
+
+/*
+  Production-ready multi-LLM API handler
+  
+  Supported models:
+  - Google Gemini 2.0 Flash (primary, cloud)
+  - Ollama Local (secondary, offline)
+  - Hugging Face Llama 3.2 (tertiary, cloud)
+*/
+
+// Configuration
+const REQUEST_TIMEOUT = 30000 // 30 seconds
+const MAX_TOKENS = 500
+
+// Timeout utility
+const fetchWithTimeout = async (url: string, options: RequestInit, timeout: number) => {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error) {
+    clearTimeout(timeoutId)
+    throw error
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { message, context } = await request.json()
+    
+    // Input validation
+    if (!message || typeof message !== "string" || message.trim().length === 0) {
+      return NextResponse.json(
+        { error: "Invalid message. Please provide a non-empty string." },
+        { status: 400 }
+      )
+    }
+
+    const model = context?.model?.toLowerCase() || "gemini"
+    let reply = ""
+    let error = null
+
+    // 1️⃣ Google Gemini (Primary - Most Reliable)
+    if (model === "gemini") {
+      const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+      
+      if (!GEMINI_API_KEY) {
+        return NextResponse.json(
+          { error: "Gemini API key not configured" },
+          { status: 500 }
+        )
+      }
+
+      const geminiModel = "gemini-2.0-flash-exp"
+
+      try {
+        const geminiResponse = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `You are FestiRo, Answer this question:\n\n${message}`
+                    }
+                  ]
+                }
+              ],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: MAX_TOKENS,
+                topP: 0.95,
+              },
+            }),
+          },
+          REQUEST_TIMEOUT
+        )
+
+        if (!geminiResponse.ok) {
+          const errorData = await geminiResponse.json().catch(() => ({}))
+          console.error("Gemini Error:", errorData)
+          throw new Error(errorData.error?.message || `HTTP ${geminiResponse.status}`)
+        }
+
+        const geminiData = await geminiResponse.json()
+        reply = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini."
+        
+      } catch (err: any) {
+        console.error("Gemini Error:", err)
+        error = `Gemini error: ${err.message}`
+        reply = "Failed to get response from Gemini model."
+      }
+    }
+
+    // 2️⃣ Ollama Local Model (Secondary - Offline)
+    else if (model === "ollama") {
+      try {
+        const ollamaResponse = await fetchWithTimeout(
+          "http://localhost:11434/api/generate",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "llama3.2",
+              prompt: `You are FestiRo, a cultural calendar assistant. Answer this:\n\n${message}`,
+              stream: false,
+              options: {
+                temperature: 0.7,
+                num_predict: MAX_TOKENS,
+              },
+            }),
+          },
+          REQUEST_TIMEOUT
+        )
+
+        if (!ollamaResponse.ok) {
+          throw new Error(`Ollama HTTP ${ollamaResponse.status}`)
+        }
+
+        const data = await ollamaResponse.json()
+        reply = data.response?.trim() || "No response from Ollama."
+        
+      } catch (err: any) {
+        console.error("Ollama Error:", err)
+        error = `Ollama error: ${err.message}. Make sure Ollama is running locally.`
+        reply = "Failed to connect to local Ollama server. Make sure it's running."
+      }
+    }
+
+    // 3️⃣ Hugging Face Cloud Model (Tertiary - Backup)
+    else if (model === "huggingface") {
+      const HF_API_KEY = process.env.HUGGINGFACE_API_KEY
+      
+      if (!HF_API_KEY) {
+        return NextResponse.json(
+          { error: "Hugging Face API key not configured" },
+          { status: 500 }
+        )
+      }
+
+      // Use a supported small model
+      const hfModel = "microsoft/DialoGPT-medium"
+
+      try {
+        const hfResponse = await fetchWithTimeout(
+          `https://api-inference.huggingface.co/models/${hfModel}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${HF_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              inputs: `You are FestiRo, a festival assistant. Answer:\n\n${message}`,
+              parameters: {
+                max_new_tokens: MAX_TOKENS,
+                return_full_text: false,
+                temperature: 0.7,
+                top_p: 0.95,
+              },
+              options: {
+                wait_for_model: true,
+                use_cache: false,
+              },
+            }),
+          },
+          REQUEST_TIMEOUT
+        )
+
+        if (!hfResponse.ok) {
+          const errorData = await hfResponse.json().catch(() => ({}))
+          console.error("HF Error:", errorData)
+          throw new Error(errorData.error || `HTTP ${hfResponse.status}`)
+        }
+
+        const hfData = await hfResponse.json()
+        console.log("HF Response:", JSON.stringify(hfData, null, 2))
+
+        if (Array.isArray(hfData) && hfData[0]?.generated_text) {
+          reply = hfData[0].generated_text.trim()
+        } else if (hfData.generated_text) {
+          reply = hfData.generated_text.trim()
+        } else if (hfData.error) {
+          throw new Error(hfData.error)
+        } else {
+          throw new Error("Unexpected HF response format")
+        }
+        
+      } catch (err: any) {
+        console.error("HF Error:", err)
+        error = `Hugging Face error: ${err.message}`
+        reply = "Failed to get response from Hugging Face model."
+      }
+    }
+
+    // Invalid model
+    else {
+      return NextResponse.json(
+        { error: `Invalid model: ${model}. Use 'gemini', 'ollama', or 'huggingface'.` },
+        { status: 400 }
+      )
+    }
+
+    return NextResponse.json({
+      intent: "chat",
+      confidence: error ? 0 : 1,
+      reply,
+      model,
+      error: error || undefined,
+      rag_hits: [],
+      timestamp: new Date().toISOString(),
+    })
+
+  } catch (err: any) {
+    console.error("API Route Error:", err)
+    return NextResponse.json(
+      { 
+        error: "Internal server error", 
+        details: err.message,
+        intent: "chat",
+        confidence: 0,
+        reply: "An unexpected error occurred. Please try again."
+      },
+      { status: 500 }
+    )
+  }
+}
+
+
+--------------------------------------------------------------------------------------------------
+
+
+
+
+📋 Complete Summary: What Happened & Current Status
+What We Accomplished
+Built Multi-LLM Chat System
+
+Created a chat interface with dropdown to select between different AI models
+
+Integrated backend API route (/api/assist_v2) to handle requests
+
+Added prompt engineering to make models act as "FestiRo" festival assistant
+
+Integrated 3 LLM Types
+
+Google Gemini (Cloud API) - ✅ Working perfectly
+
+Ollama Local (localhost:11434) - ✅ Working when Ollama is running
+
+Hugging Face (Cloud API) - ❌ Not working due to API changes
+
+Added Features
+
+Copy message button
+
+Text-to-speech (volume button) using browser's SpeechSynthesis API
+
+Error handling and timeout protection
+
+System prompts to specialize responses for festivals
+
+Set Up API Keys
+
+Created and stored Gemini API key in .env.local
+
+Created Hugging Face access token
+
+Both stored securely server-side
+
+Current Problem: Hugging Face API Issues
+What Went Wrong:
+
+Hugging Face recently changed their Inference API infrastructure​
+
+Old endpoint: api-inference.huggingface.co
+
+New system: "Inference Providers" with different routing​
+
+Many models (including GPT-2, DialoGPT, Llama 3.2) are no longer available on the free tier​
+
+You're getting HTTP 404 errors because the models aren't accessible anymore
+
+Why It's Failing:
+
+Free Inference API has strict limits (300 requests/hour for registered users)​
+
+Most powerful models now require paid "Pro" subscription ($10/month)​
+
+Model availability is limited and changes frequently​
+
+✅ Final Working Solution
+Recommended Setup: 2 Models (Drop Hugging Face)
+
+Your best production setup is:
+
+Google Gemini 2.0 Flash (Primary)
+
+✅ Free tier with generous quotas
+
+✅ High quality responses
+
+✅ Reliable and stable
+
+✅ Already working in your app
+
+Ollama Local (Secondary/Offline)
+
+✅ Completely free, no API costs
+
+✅ Works offline
+
+✅ Full privacy control
+
+✅ Already working when Ollama runs
+
+Drop Hugging Face because:
+
+❌ Unreliable free tier
+
+❌ Limited model availability
+
+❌ Frequent API changes
+
+❌ Requires paid Pro for good models
+
+What You Have Now
+✅ Working:
+
+Chat interface with model selection dropdown
+
+Google Gemini integration (responses in 1-5 seconds)
+
+Ollama local model support
+
+Copy and text-to-speech features
+
+Error handling and fallback messages
+
+Festival-focused system prompts
+
+❌ Not Working:
+
+Hugging Face integration (404 errors)
+
+Next Steps (Choose One)
+Option 1: Keep 2 Models (Recommended)
+
+Remove Hugging Face from your LLM dropdown
+
+Focus on Gemini (cloud) + Ollama (local)
+
+Most reliable, zero cost, production-ready
+
+Option 2: Try Hugging Face Pro ($10/month)
+
+Subscribe to Hugging Face Pro
+
+Access to better models and higher limits
+
+Still less reliable than Gemini
+
+Bottom line: You have a fully functional multi-model chat assistant with 
+Gemini and Ollama working perfectly. The Hugging Face integration failed due to their
+ recent API changes and limited free tier availability,
+ so it's best to drop it and stick with your two working models.
