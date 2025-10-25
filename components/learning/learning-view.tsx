@@ -1,3 +1,4 @@
+// components\learning\learning-view.tsx
 "use client"
 
 import { useState } from "react"

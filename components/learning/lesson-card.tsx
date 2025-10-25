@@ -1,3 +1,4 @@
+// components\learning\lesson-card.tsx
 "use client"
 
 import type React from "react"
