@@ -34,21 +34,6 @@ export interface Reminder {
   constraints_applied: string[]
 }
 
-export interface Promo {
-  promo_id: string
-  event_id?: string
-  title: string
-  body: string
-  media?: {
-    image?: string
-    video_id?: string
-  }
-  languages: string[]
-  target_regions: string[]
-  tags: string[]
-  sponsor_meta?: Record<string, any>
-}
-
 export interface AssistResponse {
   intent: string
   confidence: number
@@ -73,4 +58,19 @@ export interface LessonCard {
   content: string
   tags: string[]
   region?: string
+}
+// lib/types.ts
+export interface Promo {
+  promo_id: string
+  event_id: string
+  title: string
+  body: string
+  media?: {
+    image?: string
+    video_id?: string
+  }
+  languages: string[]
+  target_regions: string[]
+  tags?: string[]
+  event_date?: string // ✅ Add this field
 }
