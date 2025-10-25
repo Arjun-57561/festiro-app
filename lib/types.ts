@@ -50,15 +50,22 @@ export interface AssistResponse {
   }>
 }
 
+// lib/types.ts
 export interface LessonCard {
   id: string
   title: string
   summary: string
   language: string
   content: string
-  tags: string[]
+  tags?: string[]
   region?: string
+  category?: string // ✅ Add
+  difficulty?: "beginner" | "intermediate" | "advanced" // ✅ Add
+  readTime?: number // ✅ Add (in minutes)
+  hasQuiz?: boolean // ✅ Add
+  relatedLessons?: string[] // ✅ Add (IDs of related lessons)
 }
+
 // lib/types.ts
 export interface Promo {
   promo_id: string
