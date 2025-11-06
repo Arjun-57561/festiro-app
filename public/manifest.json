@@ -1,0 +1,55 @@
+{
+  "name": "FestiRo - Indian Festival Calendar",
+  "short_name": "FestiRo",
+  "description": "Your intelligent guide to Indian festivals and cultural celebrations",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FEFAF5",
+  "theme_color": "#FF7A3D",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["lifestyle", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Calendar",
+      "short_name": "Calendar",
+      "description": "View festival calendar",
+      "url": "/calendar",
+      "icons": [{ "src": "/icons/calendar.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Chat",
+      "short_name": "Chat",
+      "description": "Ask festival questions",
+      "url": "/chat",
+      "icons": [{ "src": "/icons/chat.png", "sizes": "96x96" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ]
+}

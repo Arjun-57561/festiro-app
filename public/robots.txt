@@ -1,0 +1,50 @@
+# public/robots.txt
+
+# ==================================================
+# FestiRo - Indian Festival Calendar & AI Assistant
+# ==================================================
+
+# Allow all search engines
+User-agent: *
+Allow: /
+
+# Optimize crawl budget - Disallow unnecessary paths
+Disallow: /api/
+Disallow: /admin/
+Disallow: /_next/
+Disallow: /private/
+
+# Allow specific API endpoints for better indexing
+Allow: /api/og-image
+
+# Crawl delay (optional - adjust based on server capacity)
+# Crawl-delay: 1
+
+# Specific bot rules
+User-agent: Googlebot
+Allow: /
+Disallow: /api/
+Disallow: /_next/static/
+Allow: /_next/static/media/
+
+User-agent: Googlebot-Image
+Allow: /
+
+User-agent: bingbot
+Allow: /
+Disallow: /api/
+
+# Block bad bots (optional)
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+# Sitemap location
+Sitemap: https://festiro.vercel.app/sitemap.xml
+Sitemap: https://festiro.app/sitemap.xml
+
+# Additional sitemaps for specific content types (future)
+# Sitemap: https://festiro.app/sitemap-festivals.xml
+# Sitemap: https://festiro.app/sitemap-lessons.xml
