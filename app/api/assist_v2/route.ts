@@ -1,20 +1,48 @@
+// app/api/assist_v2/route.ts
 import { NextResponse } from "next/server"
 import Groq from "groq-sdk"
+import {
+  isFestivalQuestion,
+  validateResponse,
+  getFestivalSuggestion,
+  extractFestivalName,
+  getFestivalCategory,
+  getResponseLengthSuggestion,
+} from "@/lib/festival-validator"
 
-/*
-  Production-ready multi-LLM API handler for FestiRo
-  
-  Supported models:
-  - Groq (Llama 3.3) - Ultra-fast inference (primary)
-  - Google Gemini 2.0 Flash (secondary, cloud)
-*/
 
 // Configuration
 const REQUEST_TIMEOUT = 30000 // 30 seconds
-const MAX_TOKENS = 500
+const MAX_TOKENS = 800 // Increased for detailed festival info
 
-// Festival assistant system prompt
-const FESTIRO_PROMPT = `You are FestiRo, a cultural calendar assistant specializing in Indian festivals, auspicious dates (muhurat), and cultural celebrations. Provide helpful, accurate, and culturally sensitive information about festivals, traditions, and celebrations.`
+// FestiRo-ONLY System Prompt (Stricter)
+const FESTIRO_PROMPT = `You are FestiRo, an AI assistant EXCLUSIVELY specialized in Indian and world festivals, auspicious dates (muhurat), cultural celebrations, and related traditions.
+
+CORE GUIDELINES:
+1. ONLY answer questions about festivals, celebrations, rituals, and cultural traditions
+2. Provide historically accurate, culturally sensitive information
+3. Include specific dates, timings, and muhurat information when relevant
+4. Explain the significance and traditions of festivals
+5. Cover regional variations and lesser-known celebrations
+6. If asked about non-festival topics, politely decline and redirect
+
+RESPONSE FORMAT:
+- Be concise yet informative (2-3 paragraphs)
+- Use bullet points for lists
+- Include emojis for visual appeal
+- Add relevant dates and timings
+- Suggest related festivals when appropriate
+
+FESTIVAL KNOWLEDGE AREAS:
+✅ Major Indian Festivals (Diwali, Holi, Navratri, Pongal, Onam)
+✅ Regional & Tribal Festivals (Theyyam, Sekrenyi, Madai, Wangala)
+✅ Religious Festivals (Hindu, Muslim, Christian, Sikh, Buddhist, Jain, Parsi)
+✅ Harvest & Seasonal Festivals
+✅ Muhurat & Auspicious Timings
+✅ Festival Traditions & Rituals
+✅ Historical & Cultural Significance
+
+Always maintain cultural respect and provide authentic information.`
 
 // Initialize Groq client
 const groq = new Groq({
@@ -47,7 +75,7 @@ export async function POST(request: Request) {
   try {
     const { message, context } = await request.json()
 
-    // Input validation
+    // ===== INPUT VALIDATION =====
     if (!message || typeof message !== "string" || message.trim().length === 0) {
       return NextResponse.json(
         { error: "Invalid message. Please provide a non-empty string." },
@@ -55,11 +83,39 @@ export async function POST(request: Request) {
       )
     }
 
+    // ===== FESTIVAL VALIDATION (NEW!) =====
+    const isFestival = isFestivalQuestion(message)
+    
+    if (!isFestival) {
+      return NextResponse.json({
+        intent: "chat",
+        confidence: 0,
+        reply: `I appreciate your question, but I'm specialized ONLY in festivals and cultural celebrations! 🎊\n\n${getFestivalSuggestion()}\n\nExamples:\n• "When is Diwali 2025?"\n• "Tell me about Theyyam"\n• "What is a muhurat?"`,
+        model: "festiro-validator",
+        category: "rejected",
+        reason: "Non-festival question",
+        timestamp: new Date().toISOString(),
+      })
+    }
+
+    // Extract metadata (for logging & context)
+    const festivalName = extractFestivalName(message)
+    const festivalCategory = getFestivalCategory(message)
+    const responseLengthHint = getResponseLengthSuggestion(message)
+
+    console.log(`🎊 Festival Question Detected:
+      Festival: ${festivalName || "General"}
+      Category: ${festivalCategory}
+      Length Hint: ${responseLengthHint}
+      Question: ${message}`)
+
+    // ===== MODEL SELECTION =====
     const model = context?.model?.toLowerCase() || "groq"
     let reply = ""
     let error = null
+    let usedModel = model
 
-    // 1️⃣ Groq (Primary - Ultra Fast)
+    // ===== 1️⃣ GROQ (Primary - Ultra Fast) =====
     if (model === "groq") {
       const GROQ_API_KEY = process.env.GROQ_API_KEY
 
@@ -82,24 +138,33 @@ export async function POST(request: Request) {
               content: message,
             },
           ],
-          model: "llama-3.3-70b-versatile", // Fast and powerful
-          temperature: 0.7,
+          model: "llama-3.3-70b-versatile",
+          temperature: 0.6, // Lower for consistency
           max_tokens: MAX_TOKENS,
-          top_p: 0.95,
+          top_p: 0.9,
+          frequency_penalty: 0.5, // Reduce repetition
+          presence_penalty: 0.3, // Encourage new content
         })
 
         reply =
           chatCompletion.choices[0]?.message?.content ||
           "No response from Groq."
+
+        // Validate response quality
+        const validation = validateResponse(message, reply)
+        if (!validation.isValid && validation.message) {
+          reply = validation.message
+        }
       } catch (err: any) {
-        console.error("Groq Error:", err)
+        console.error("❌ Groq Error:", err)
         error = `Groq error: ${err.message}`
-        reply = "Failed to get response from Groq model."
+        reply = "" // Trigger fallback to Gemini
+        
       }
     }
 
-    // 2️⃣ Google Gemini (Secondary - Reliable)
-    else if (model === "gemini") {
+    // ===== 2️⃣ GOOGLE GEMINI (Fallback - Reliable) =====
+    if (!reply || model === "gemini") {
       const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
       if (!GEMINI_API_KEY) {
@@ -110,6 +175,7 @@ export async function POST(request: Request) {
       }
 
       const geminiModel = "gemini-2.0-flash-exp"
+      usedModel = "gemini"
 
       try {
         const geminiResponse = await fetchWithTimeout(
@@ -128,9 +194,9 @@ export async function POST(request: Request) {
                 },
               ],
               generationConfig: {
-                temperature: 0.7,
+                temperature: 0.6,
                 maxOutputTokens: MAX_TOKENS,
-                topP: 0.95,
+                topP: 0.9,
               },
             }),
           },
@@ -139,7 +205,7 @@ export async function POST(request: Request) {
 
         if (!geminiResponse.ok) {
           const errorData = await geminiResponse.json().catch(() => ({}))
-          console.error("Gemini Error:", errorData)
+          console.error("❌ Gemini Error:", errorData)
           throw new Error(
             errorData.error?.message || `HTTP ${geminiResponse.status}`
           )
@@ -149,15 +215,21 @@ export async function POST(request: Request) {
         reply =
           geminiData.candidates?.[0]?.content?.parts?.[0]?.text ||
           "No response from Gemini."
+
+        // Validate response quality
+        const validation = validateResponse(message, reply)
+        if (!validation.isValid && validation.message) {
+          reply = validation.message
+        }
       } catch (err: any) {
-        console.error("Gemini Error:", err)
-        error = `Gemini error: ${err.message}`
-        reply = "Failed to get response from Gemini model."
+        console.error("❌ Gemini Error:", err)
+        error = `Fallback Gemini error: ${err.message}`
+        reply = "I encountered an error processing your festival question. Please try again."
       }
     }
 
-    // Invalid model
-    else {
+    // ===== INVALID MODEL =====
+    if (!reply && model !== "groq" && model !== "gemini") {
       return NextResponse.json(
         {
           error: `Invalid model: ${model}. Use 'groq' or 'gemini'.`,
@@ -166,17 +238,23 @@ export async function POST(request: Request) {
       )
     }
 
+    // ===== SUCCESS RESPONSE =====
+    console.log(`✅ Successfully answered: ${message.substring(0, 50)}...`)
+
     return NextResponse.json({
       intent: "chat",
-      confidence: error ? 0 : 1,
-      reply,
-      model,
+      confidence: error ? 0.7 : 1,
+      reply: reply || "Unable to generate response",
+      model: usedModel,
+      festival: festivalName,
+      category: festivalCategory,
+      lengthHint: responseLengthHint,
+      isFestivalQuestion: true,
       error: error || undefined,
-      rag_hits: [],
       timestamp: new Date().toISOString(),
     })
   } catch (err: any) {
-    console.error("API Route Error:", err)
+    console.error("❌ API Route Error:", err)
     return NextResponse.json(
       {
         error: "Internal server error",
@@ -184,6 +262,7 @@ export async function POST(request: Request) {
         intent: "chat",
         confidence: 0,
         reply: "An unexpected error occurred. Please try again.",
+        isFestivalQuestion: false,
       },
       { status: 500 }
     )

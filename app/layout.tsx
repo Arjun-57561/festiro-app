@@ -10,6 +10,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { Analytics } from "@vercel/analytics/react"
 import { SpeedInsights } from "@vercel/speed-insights/next"
 
+
 // ============================================
 // FONT CONFIGURATION
 // ============================================
