@@ -11,7 +11,7 @@
 
 An AI-powered calendar to discover, track, and celebrate Indian festivals with personalized insights and muhurat timings.
 
-[Live Demo](https://festiro-vercel.app) • [GitHub](https://github.com/Arjun-57561/festiro-app) • [Issues](https://github.com/Arjun-57561/festiro-app/issues)
+[Live Demo](https://festiro-app.vercel.app/chat-assistant) • [GitHub](https://github.com/Arjun-57561/festiro-app) • [Issues](https://github.com/Arjun-57561/festiro-app/issues)
 
 </div>
 
@@ -200,7 +200,7 @@ MIT License - see [LICENSE](LICENSE)
 
 - [GitHub Issues](https://github.com/Arjun-57561/festiro-app/issues)
 - [GitHub Discussions](https://github.com/Arjun-57561/festiro-app/discussions)
-- Email: [your-email@example.com](mailto:your-email@example.com)
+- Email: [mallikarjun57561@gmail.com](mailto:mallikarjun57561@gmail.com)
 
 ---
 
