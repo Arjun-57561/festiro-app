@@ -68,7 +68,6 @@ export function ChatThread({ messages, isLoading }: ChatThreadProps) {
           <ChatMessage 
             key={message.id} 
             message={message}
-            isLatest={index === messages.length - 1}
           />
         ))}
 
