@@ -1,14 +1,19 @@
 // app/offline/page.tsx
+"use client"
+
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { WifiOff, RefreshCw } from "lucide-react"
 
-export const metadata = {
-  title: "Offline - FestiRo",
-  description: "You are currently offline",
-}
-
 export default function OfflinePage() {
+  const handleRetry = () => {
+    window.location.reload()
+  }
+
+  const handleNavigate = () => {
+    window.location.href = '/calendar'
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center p-4 bg-gradient-festival">
       <Card className="max-w-md w-full p-8 text-center space-y-6">
@@ -26,7 +31,7 @@ export default function OfflinePage() {
 
         <div className="space-y-3">
           <Button 
-            onClick={() => window.location.reload()} 
+            onClick={handleRetry}
             className="w-full gap-2"
           >
             <RefreshCw className="h-4 w-4" />
@@ -34,7 +39,7 @@ export default function OfflinePage() {
           </Button>
 
           <Button 
-            onClick={() => window.location.href = '/calendar'} 
+            onClick={handleNavigate}
             variant="outline"
             className="w-full"
           >
